@@ -1,0 +1,27 @@
+@startuml
+title Saga-хореография оформления заказа — ошибка резервирования
+
+actor "Покупатель" as Покупатель
+participant "Order Service" as Order
+participant "Kafka" as Broker
+participant "Inventory Service" as Inventory
+
+Покупатель -> Order : Оформить заказ
+activate Order
+Order -> Order : Создание заказа
+Order -> Broker : publish OrderCreated
+deactivate Order
+
+Broker -> Inventory : OrderCreated
+activate Inventory
+Inventory -> Inventory : Проверка наличия
+Inventory -> Broker : publish InventoryReservationFailed
+deactivate Inventory
+
+Broker -> Order : InventoryReservationFailed
+activate Order
+Order -> Order : Отмена заказа
+Order -> Broker : publish OrderCancelled
+deactivate Order
+
+@enduml

@@ -1,0 +1,48 @@
+@startuml
+title Saga-хореография оформления заказа — успешный сценарий
+
+actor "Покупатель" as Покупатель
+participant "Order Service" as Order
+participant "Kafka" as Broker
+participant "Inventory Service" as Inventory
+participant "Payment Service" as Payment
+participant "Payment Gateway" as PayGateway
+participant "Delivery Service" as Delivery
+participant "Logistics Provider" as Logistics
+participant "Notification Service" as Notify
+participant "Продавец" as Продавец
+
+Покупатель -> Order : Оформить заказ
+activate Order
+Order -> Order : Создание заказа
+Order -> Broker : publish OrderCreated
+deactivate Order
+
+Broker -> Inventory : OrderCreated
+activate Inventory
+Inventory -> Inventory : Проверка наличия и резервирование
+Inventory -> Broker : publish InventoryReserved
+deactivate Inventory
+
+Broker -> Payment : InventoryReserved
+activate Payment
+Payment -> PayGateway : Списание средств
+PayGateway --> Payment : Оплата успешна
+Payment -> Broker : publish PaymentSucceeded
+deactivate Payment
+
+Broker -> Delivery : PaymentSucceeded
+activate Delivery
+Delivery -> Logistics : Создание заявки на доставку
+Logistics --> Delivery : Заявка принята
+Delivery -> Broker : publish DeliveryRequested
+Delivery -> Broker : publish DeliveryStatusUpdated
+deactivate Delivery
+
+Broker -> Notify : DeliveryRequested
+activate Notify
+Notify -> Продавец : Уведомление о новом заказе
+Notify -> Broker : publish NotificationSent
+deactivate Notify
+
+@enduml
