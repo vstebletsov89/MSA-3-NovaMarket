@@ -1,0 +1,79 @@
+@startuml Saga_Success
+title Saga-хореография оформления заказа — Успешный сценарий
+
+actor "Покупатель" as Buyer
+participant "API Gateway" as GW
+participant "Order Service" as OS
+queue "Message Broker\n(Kafka)" as MB
+participant "Inventory Service" as IS
+participant "Payment Service" as PS
+participant "Delivery Service" as DS
+participant "Notification Service" as NS
+actor "Продавец" as Seller
+participant "Payment Gateway" as PGW #LightGray
+participant "Logistics Provider" as LP #LightGray
+
+== Шаг 1. Создание заказа ==
+
+Buyer -> GW : POST /orders\n(товары, адрес, способ оплаты)
+GW -> OS : Создать заказ
+OS -> OS : Сохранить заказ\nсо статусом "Создан"
+OS --> GW : 201 Created (orderId)
+GW --> Buyer : Заказ создан
+
+OS ->> MB : **OrderCreated**\n{orderId, items[], amount}
+
+== Шаг 2. Резервирование товаров ==
+
+MB ->> IS : OrderCreated
+IS -> IS : Проверить наличие\nи зарезервировать товары
+IS ->> MB : **InventoryReserved**\n{orderId, reservationId}
+
+MB ->> OS : InventoryReserved
+OS -> OS : Обновить статус\n→ "Ожидает оплаты"
+OS ->> MB : **OrderConfirmed**\n{orderId}
+
+== Шаг 3. Оплата ==
+
+MB ->> PS : InventoryReserved
+PS -> PGW : Списать средства
+PGW --> PS : Оплата успешна
+PS -> PS : Сохранить транзакцию
+PS ->> MB : **PaymentSucceeded**\n{orderId, transactionId}
+
+MB ->> OS : PaymentSucceeded
+OS -> OS : Обновить статус\n→ "Оплачен"
+OS ->> MB : **OrderPaid**\n{orderId}
+
+== Шаг 4. Доставка ==
+
+MB ->> DS : PaymentSucceeded
+DS -> LP : Создать заявку на доставку
+LP --> DS : Заявка создана (trackingNumber)
+DS -> DS : Сохранить заявку
+DS ->> MB : **DeliveryRequested**\n{orderId, trackingNumber}
+
+MB ->> OS : DeliveryRequested
+OS -> OS : Обновить статус\n→ "Передан в доставку"
+
+== Уведомления ==
+
+MB ->> NS : OrderPaid
+NS -> Buyer : Push: "Заказ оплачен\nи готовится к отправке"
+
+MB ->> NS : DeliveryRequested
+NS -> Seller : Push: "Подготовьте товар\nк отправке"
+NS -> Buyer : Push: "Заказ передан\nв доставку, трек: ..."
+
+== Доставка завершена ==
+
+LP -> DS : Webhook: статус "Доставлен"
+DS ->> MB : **DeliveryStatusUpdated**\n{orderId, status: "Delivered"}
+
+MB ->> OS : DeliveryStatusUpdated
+OS -> OS : Обновить статус\n→ "Доставлен"
+
+MB ->> NS : DeliveryStatusUpdated
+NS -> Buyer : Push: "Ваш заказ доставлен!"
+
+@enduml
