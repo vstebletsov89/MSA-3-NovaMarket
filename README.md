@@ -355,3 +355,199 @@ Kubernetes позволяет управлять масштабирование�
 - Настройте автоматическое масштабирование по RPS через HPA. Для этого создайте новую версию манифеста. Когда будете сдавать задание, загрузите его в директорию Task3.
 - Убедитесь, что всё точно работает так, как задумано. Для этого сгенерируйте нагрузку на приложение по аналогии с пятым шагом первой части задания.
 Сделайте скриншоты дашборда или выгрузите логи, которые покажут, что количество реплик базы данных поменялось в ответ на нагрузку, и загрузите их в директорию Task3.
+
+# Задание 4. Повысьте надёжность приложения
+
+Приложение развивается. У него появляются новые клиентские каналы и интеграции с внешними сервисами. На этом этапе команда сталкивается с двумя проблемами:
+
+- Рост нагрузки от разных каналов клиентов. Иногда один канал (например, партнёрский API) начинает штурмовать API, создавая слишком много запросов и влияя на остальных пользователей. Продакт хочет защитить API от перегрузки, задавая разные лимиты для разных каналов.
+
+- Ненадёжные внешние интеграции. Логистическая компания иногда отвечает медленно или бывает временно недоступна. В результате подвисают запросы пользователей и им кажется, что NovaMarket «тормозит». Поэтому команда хочет ввести Circuit Breaker, чтобы не ждать бесконечно и возвращать контролируемый ответ при проблемах внешнего сервиса.
+
+Напомним, что команда NovaMarket использует NGINX как:
+
+- API Gateway для входящих клиентских запросов
+- Прокси для вызовов к внешним сервисам
+
+---
+
+## Часть 1. Исправьте конфигурацию Rate Limiter
+
+Команда настроила rate limiter, но для веб- и мобильного приложения применяются одинаковые лимиты. Ваша задача — помочь реализовать следующие ограничения:
+
+- Веб-приложение — до 50 запросов в секунду с одного IP
+- Мобильное приложение — до 30 запросов в секунду с одного IP  
+```
+http {
+    limit_req_zone $binary_remote_addr zone=one:10m rate=100r/s;
+
+    server {
+        listen 80;
+
+        # Веб и мобилки сейчас обращаются на этот ресурс
+        location /api/ {
+            limit_req zone=one burst=200;
+            proxy_pass http://backend;
+        }
+    }
+}
+```
+Проанализируйте текущий манифест NGINX и исправьте его так, чтобы он соответствовал требованиям.  
+Сохраните обновлённый конфигурационный файл в директорию Task4 вашего репозитория.
+
+---
+
+## Часть 2. Настройте Circuit breaker
+
+Теперь нужно повысить надёжность взаимодействия с внешними сервисами. Для этого в текущем манифесте NGINX-прокси реализуйте паттерн Circuit Breaker со следующими требованиями:
+
+- Таймаут ответа — три секунды
+- Если пять подряд запросов завершаются ошибкой, то попытки должны отключаться на 30 секунд (отдаём fallback-ответ)
+- Если после паузы сервис снова работает — вызовы восстанавливаются  
+
+```
+http {
+    upstream logistics_backend {
+        server logistics.company.com;
+    }
+
+    server {
+        listen 8080;
+
+        location /logistics/ {
+            proxy_pass http://logistics_backend;
+            proxy_connect_timeout 30s; # слишком большой таймаут
+            proxy_read_timeout 30s;
+        }
+    }
+}
+```
+Проанализируйте текущий манифест NGINX и исправьте его так, чтобы он соответствовал требованиям.  
+Сохраните обновлённый конфигурационный файл в директорию Task4 вашего репозитория.
+
+---
+
+## Часть 3. Протестируйте
+
+Создайте скрипты на Locust для тестирования обеих конфигураций.  
+Добавьте в конфигурацию NGINX тестовые upstream:
+```
+    upstream backend {
+        server localhost:8081;
+    }
+
+    upstream logistics_backend {
+        server localhost:9090 max_fails=5 fail_timeout=30s;  # Используем тестовый сервер
+    }
+```
+И блок конфигурации для имитации наших тестовых сервисов:
+```
+    # Тестовый сервер для имитации бэкенда приложения
+    server {
+        listen 8081;
+        
+        location /api/ {
+            add_header Content-Type application/json;
+            
+            # Эмулируем разное поведение в зависимости от заголовка
+            if ($http_client_type = "web") {
+                return 200 '{"status": "success", "service": "web_backend", "data": "Web application response"}';
+            }
+            if ($http_client_type = "mobile") {
+                return 200 '{"status": "success", "service": "mobile_backend", "data": "Mobile application response"}';
+            }
+            
+            # Дефолтный ответ
+            return 200 '{"status": "success", "service": "default_backend", "data": "Default response"}';
+        }
+    }
+
+
+    # Тестовый сервер для имитации логистического сервиса
+    server {
+        listen 9090;
+        
+        location / {
+            add_header Content-Type application/json;
+            
+            # Нормальный быстрый ответ
+            if ($arg_type = "fast") {
+                return 200 '{"status": "success", "service": "logistics", "response_time": "fast", "tracking_id": "TRK_FAST_123"}';
+            }
+            
+            # Медленный ответ (превышает таймаут)
+            if ($arg_type = "slow") {
+                return 200 '{"status": "slow", "service": "logistics", "response_time": "5000ms", "message": "This response is delayed"}';
+            }
+            
+            # Ответ с ошибкой
+            if ($arg_type = "error") {
+                return 500 '{"status": "error", "service": "logistics", "error_code": "INTERNAL_ERROR", "message": "Service temporarily unavailable"}';
+            }
+            
+            # Случайное поведение для тестирования - УПРОЩЕННАЯ ВЕРСИЯ
+            if ($arg_type = "random") {
+                # Альтернативный подход без вложенных if
+                return 200 '{"status": "success", "service": "logistics", "type": "random", "note": "Random behavior simulation"}';
+            }
+            
+            # Стандартный успешный ответ
+            return 200 '{"status": "success", "service": "logistics", "data": {"tracking_id": "TRK123456", "estimated_delivery": "2024-01-15", "status": "in_transit"}}';
+        }
+        
+        # Специальные endpoints для тестирования Circuit Breaker
+        location /fast {
+            add_header Content-Type application/json;
+            return 200 '{"status": "success", "endpoint": "fast", "message": "Quick response"}';
+        }
+        
+        location /slow {
+            add_header Content-Type application/json;
+            # Этот endpoint всегда медленный (5 секунд)
+            return 200 '{"status": "slow", "endpoint": "slow", "message": "This is a deliberately slow response", "delay": "5000ms"}';
+        }
+        
+        location /error {
+            add_header Content-Type application/json;
+            return 503 '{"status": "error", "endpoint": "error", "error": "service_unavailable", "message": "Logistics service is experiencing issues"}';
+        }
+        
+        location /unavailable {
+            add_header Content-Type application/json;
+            return 500 '{"status": "error", "endpoint": "unavailable", "error": "internal_server_error"}';
+        }
+        
+        # Отдельный endpoint для случайного поведения
+        location /random-behavior {
+            add_header Content-Type application/json;
+            # Простая логика случайности на основе последней цифры IP
+            set $last_digit 0;
+            if ($remote_addr ~* ".*\.(\d)$") {
+                set $last_digit $1;
+            }
+            
+            # Проверяем четность последней цифры
+            if ($last_digit ~* "[13579]") {
+                return 200 '{"status": "success", "service": "logistics", "type": "random_success", "ip_last_digit": "$last_digit"}';
+            }
+            if ($last_digit ~* "[24680]") {
+                return 503 '{"status": "error", "service": "logistics", "type": "random_error", "ip_last_digit": "$last_digit"}';
+            }
+            
+            return 200 '{"status": "success", "service": "logistics", "type": "default"}';
+        }
+    }
+```
+Запустите проверки:
+```
+locust -f rate_limiter.py --host=http://localhost:8080 --web-port=8082
+locust -f circuit_breaker.py --host=http://localhost:8080 --web-port=8082
+```
+Протестируйте и загрузите в Task4 скриншоты срабатывания Rate Limiter и Circuit Breaker. Последний можно увидеть в логах Locust:
+![Image (1).png](Image%20%281%29.png)
+
+Как сдать работу
+В директории Task1 должна лежать схема приложения, таблица-реестр событий и диаграмма последовательности.
+В Task2 — обновлённая схема приложения и ADR.
+В Task3 — скриншоты дашборда или логи, которые показывают, что количество реплик базы данных поменялось в ответ на нагрузку.
+В Task4 загрузите два манифеста NGINX и скриншоты срабатывания Rate Limiter и Circuit Breaker.
