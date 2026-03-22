@@ -74,6 +74,17 @@ deploy_app() {
     kubectl get hpa scaletestapp-hpa-memory
 }
 
+deploy_base_app() {
+    info "Применяем Deployment..."
+    kubectl apply -f "$SCRIPT_DIR/deployment.yaml"
+
+    info "Применяем Service..."
+    kubectl apply -f "$SCRIPT_DIR/service.yaml"
+
+    info "Ожидаем готовности Deployment..."
+    kubectl rollout status deployment/scaletestapp --timeout=120s
+}
+
 # ─────────────────────────────────────────────
 # 3. Тестирование HPA по памяти
 # ─────────────────────────────────────────────
@@ -177,15 +188,12 @@ test_rps_hpa() {
 
     info "───────────────────────────────────────────"
     info "Prometheus UI доступен: http://localhost:9090"
-    info "  → Перейдите в Status → Targets и убедитесь,"
-    info "    что scaletestapp-monitor виден и в состоянии UP."
-    info "  → В Graph выполните запрос: http_requests_total"
     info ""
     info "Для нагрузочного теста запустите locust:"
-    info "  cd $SCRIPT_DIR && locust --host=http://localhost:8080"
+    info "  python -m locust --host=http://localhost:8080"
     info "Затем откройте http://localhost:8089 и запустите тест."
     info ""
-    info "Наблюдайте за масштабированием:"
+    info "В отдельном терминале::"
     info "  kubectl get hpa scaletestapp-hpa-rps -w"
     info "  kubectl get pods -l app=scaletestapp -w"
     info ""
@@ -193,7 +201,7 @@ test_rps_hpa() {
     info "  kubectl get --raw '/apis/custom.metrics.k8s.io/v1beta1/namespaces/default/pods/*/http_requests_per_second' | jq"
     info "───────────────────────────────────────────"
 
-    read -rp "Нажмите Enter после завершения тестирования Части 2..."
+    read -rp "Нажмите Enter..."
     kill "$PROM_PF_PID" 2>/dev/null || true
     kill "$APP_PF_PID" 2>/dev/null || true
 }
@@ -238,10 +246,6 @@ main() {
 
     echo ""
     info "Все шаги завершены!"
-    read -rp "Хотите очистить все ресурсы? (y/n): " ans
-    if [[ "$ans" == "y" ]]; then
-        cleanup
-    fi
 }
 
 # ─────────────────────────────────────────────
@@ -254,17 +258,17 @@ case "${1:-}" in
         start_minikube
         deploy_app
         test_memory_hpa
+        cleanup
         ;;
     part2)
         info "Запуск Части 2: Prometheus + HPA по RPS"
         check_deps
         start_minikube
+        deploy_base_app
         deploy_prometheus
         deploy_prometheus_adapter
         deploy_hpa_rps
         test_rps_hpa
-        ;;
-    cleanup)
         cleanup
         ;;
     *)
