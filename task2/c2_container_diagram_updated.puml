@@ -1,0 +1,80 @@
+@startuml C2_NovaMarket_Task2
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+title NovaMarket — Container Diagram (C2) — Task 2: Просмотр истории покупок
+
+Person(buyer, "Покупатель", "Просматривает каталог, оформляет заказы, отслеживает доставку, просматривает историю покупок")
+Person(seller, "Продавец", "Получает уведомления о заказах, управляет товарами")
+
+System_Boundary(novamarket, "NovaMarket Platform") {
+
+    Container(mobile_app, "Mobile App", "React Native", "Мобильное приложение покупателя и продавца")
+    Container(api_gateway, "API Gateway", "NGINX", "Маршрутизация запросов, аутентификация, rate-limiting")
+
+    Container(catalog_service, "Catalog Service", "Microservice", "Управление каталогом товаров: карточки, категории, фильтрация, отзывы, отображение актуальной цены и доступности")
+    Container(cart_service, "Cart Service", "Microservice", "Управление корзиной покупателя")
+    Container(order_service, "Order Service", "Microservice", "Создание и управление жизненным циклом заказа")
+    Container(inventory_service, "Inventory Service", "Microservice", "Проверка наличия и резервирование товаров на складе")
+    Container(payment_service, "Payment Service", "Microservice", "Обработка платежей, взаимодействие с платёжным шлюзом")
+    Container(delivery_service, "Delivery Service", "Microservice", "Формирование заявок на доставку, отслеживание статуса")
+    Container(notification_service, "Notification Service", "Microservice", "Отправка уведомлений покупателям и продавцам (push, email)")
+
+    Container(order_history_service, "Order History Service", "Microservice (CQRS Read)", "Read-модель для просмотра истории покупок. Агрегирует данные из событий заказов, платежей, доставок и каталога в денормализованное представление")
+
+    ContainerQueue(message_broker, "Message Broker", "Kafka", "Событийная шина для асинхронного обмена между сервисами")
+
+    ContainerDb(catalog_db, "Catalog DB", "PostgreSQL", "Товары, категории, отзывы")
+    ContainerDb(cart_db, "Cart DB", "Redis", "Корзины покупателей")
+    ContainerDb(order_db, "Order DB", "PostgreSQL", "Заказы и их статусы")
+    ContainerDb(inventory_db, "Inventory DB", "PostgreSQL", "Остатки и резервы товаров")
+    ContainerDb(payment_db, "Payment DB", "PostgreSQL", "Транзакции, привязки карт, статусы оплат")
+    ContainerDb(delivery_db, "Delivery DB", "PostgreSQL", "Заявки на доставку, трек-номера")
+    ContainerDb(order_history_db, "Order History DB", "MongoDB", "Денормализованная read-модель истории покупок: заказы, товары, цены, статусы, способы оплаты и доставки")
+}
+
+System_Ext(payment_gateway, "Payment Gateway", "Внешний платёжный провайдер")
+System_Ext(logistics_provider, "Logistics Provider", "Внешний логистический провайдер доставки")
+
+' --- Пользователи -> API ---
+Rel(buyer, mobile_app, "Использует")
+Rel(seller, mobile_app, "Использует")
+Rel(mobile_app, api_gateway, "HTTPS/REST")
+
+' --- API Gateway -> Сервисы (синхронные запросы) ---
+Rel(api_gateway, catalog_service, "REST", "Каталог, поиск, фильтры")
+Rel(api_gateway, cart_service, "REST", "Операции с корзиной")
+Rel(api_gateway, order_service, "REST", "Создание заказа")
+Rel(api_gateway, delivery_service, "REST", "Статус доставки, трек-номер")
+Rel(api_gateway, order_history_service, "REST", "История покупок, детали заказа, скачивание чека")
+
+' --- Сервисы -> БД ---
+Rel(catalog_service, catalog_db, "R/W")
+Rel(cart_service, cart_db, "R/W")
+Rel(order_service, order_db, "R/W")
+Rel(inventory_service, inventory_db, "R/W")
+Rel(payment_service, payment_db, "R/W")
+Rel(delivery_service, delivery_db, "R/W")
+Rel(order_history_service, order_history_db, "R/W")
+
+' --- Событийные потоки через брокер (публикация) ---
+Rel(order_service, message_broker, "Публикует", "OrderCreated, OrderCancelled")
+Rel(inventory_service, message_broker, "Публикует", "InventoryReserved, InventoryReservationFailed, InventoryUpdated")
+Rel(payment_service, message_broker, "Публикует", "PaymentSucceeded, PaymentFailed")
+Rel(delivery_service, message_broker, "Публикует", "DeliveryRequested, DeliveryStatusUpdated")
+Rel(notification_service, message_broker, "Публикует", "NotificationSent")
+
+' --- Событийные потоки через брокер (потребление) ---
+Rel(message_broker, catalog_service, "Потребляет", "InventoryUpdated")
+Rel(message_broker, inventory_service, "Потребляет", "OrderCreated, OrderCancelled")
+Rel(message_broker, payment_service, "Потребляет", "InventoryReserved")
+Rel(message_broker, delivery_service, "Потребляет", "PaymentSucceeded")
+Rel(message_broker, order_service, "Потребляет", "InventoryReserved/Failed, PaymentSucceeded/Failed, DeliveryRequested/StatusUpdated")
+Rel(message_broker, notification_service, "Потребляет", "OrderCreated, PaymentSucceeded, PaymentFailed, DeliveryRequested, DeliveryStatusUpdated")
+Rel(message_broker, order_history_service, "Потребляет", "OrderCreated, OrderCancelled, InventoryReserved, PaymentSucceeded, PaymentFailed, DeliveryRequested, DeliveryStatusUpdated")
+
+' --- Внешние системы ---
+Rel(payment_service, payment_gateway, "HTTPS/API", "Списание / возврат средств")
+Rel(delivery_service, logistics_provider, "HTTPS/API", "Создание заявки, получение трек-номера")
+
+@enduml
