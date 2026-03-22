@@ -59,8 +59,8 @@ deploy_app() {
     info "Применяем Service..."
     kubectl apply -f "$SCRIPT_DIR/service.yaml"
 
-    info "Ожидаем готовности пода..."
-    kubectl wait --for=condition=Ready pod -l app=scaletestapp --timeout=120s
+    info "Ожидаем готовности Deployment..."
+    kubectl rollout status deployment/scaletestapp --timeout=120s
 
     info "Применяем HPA по памяти..."
     kubectl apply -f "$SCRIPT_DIR/hpa-memory.yaml"
@@ -68,6 +68,8 @@ deploy_app() {
     ok "Приложение развёрнуто, HPA по памяти настроен."
     echo ""
     kubectl get deployment scaletestapp
+    echo ""
+    kubectl get pods --show-labels
     echo ""
     kubectl get hpa scaletestapp-hpa-memory
 }
@@ -94,7 +96,7 @@ test_memory_hpa() {
     info "  minikube dashboard"
     info "───────────────────────────────────────────"
 
-    read -rp "Нажмите Enter после завершения тестирования Части 1, чтобы перейти к Части 2..."
+    read -rp "Нажмите Enter"
     kill "$PF_PID" 2>/dev/null || true
 }
 
@@ -236,5 +238,36 @@ main() {
 
     echo ""
     info "Все шаги завершены!"
-    cleanup
+    read -rp "Хотите очистить все ресурсы? (y/n): " ans
+    if [[ "$ans" == "y" ]]; then
+        cleanup
+    fi
 }
+
+# ─────────────────────────────────────────────
+# Диспетчер команд
+# ─────────────────────────────────────────────
+case "${1:-}" in
+    part1)
+        info "Запуск Части 1: Деплой приложения + HPA по памяти"
+        check_deps
+        start_minikube
+        deploy_app
+        test_memory_hpa
+        ;;
+    part2)
+        info "Запуск Части 2: Prometheus + HPA по RPS"
+        check_deps
+        start_minikube
+        deploy_prometheus
+        deploy_prometheus_adapter
+        deploy_hpa_rps
+        test_rps_hpa
+        ;;
+    cleanup)
+        cleanup
+        ;;
+    *)
+        main
+        ;;
+esac
