@@ -85,10 +85,10 @@ test_memory_hpa() {
 
     info "───────────────────────────────────────────"
     info "Для проверки HPA по памяти запустите locust:"
-    info "  cd $SCRIPT_DIR && locust --host=http://localhost:8080"
+    info "  python -m locust --host=http://localhost:8080"
     info "Затем откройте http://localhost:8089 и запустите тест."
     info ""
-    info "В отдельном терминале наблюдайте за масштабированием:"
+    info "В отдельном терминале:"
     info "  kubectl get hpa scaletestapp-hpa-memory -w"
     info "  kubectl get pods -l app=scaletestapp -w"
     info ""
