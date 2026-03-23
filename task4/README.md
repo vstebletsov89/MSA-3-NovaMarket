@@ -23,7 +23,8 @@ http://localhost/api/mobile/
 {"status": "success", "service": "mobile_backend", "data": "Mobile application response"}
 
 # Запуск Locust
-locust -f task4/rate_limiter.py --host=http://localhost:80 --web-port=8082
+locust -f rate_limiter.py --host=http://localhost:8080 --web-port=8082
+locust -f rate_limiter.py --host=http://127.0.0.1:8080 --web-port=8082
 
 Откройте http://localhost:8082, задайте ~100 пользователей и hatch rate ~20, запустите тест. Вы увидите 429 ответы при превышении лимита.
 
