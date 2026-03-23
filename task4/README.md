@@ -24,27 +24,17 @@ http://localhost/api/mobile/
 
 # Запуск Locust
 locust -f rate_limiter.py --host=http://localhost:8080 --web-port=8082
-locust -f rate_limiter.py --host=http://127.0.0.1:8080 --web-port=8082
-
-Откройте http://localhost:8082, задайте ~100 пользователей и hatch rate ~20, запустите тест. Вы увидите 429 ответы при превышении лимита.
-
 
 nginx -s stop
 
 -----------------------------
-nginx -s stop
+# Для тестирования Сircuit Breaker
 
+PS C:\tools\nginx> nginx -c conf/circuit_breaker.conf -t
+nginx: the configuration file C:\tools\nginx/conf/circuit_breaker.conf syntax is ok
+nginx: configuration file C:\tools\nginx/conf/circuit_breaker.conf test is successful
 
-
-
-
+nginx -c conf/circuit_breaker.conf
 
 # Запуск Locust
-locust -f task4/circuit_breaker.py --host=http://localhost:8080 --web-port=8082
-
-Откройте http://localhost:8082, задайте ~30 пользователей, запустите тест. В логах Locust и на дашборде вы увидите:
-Сначала ошибки от upstream
-Затем fallback-ответы (Circuit Breaker открыт)
-Через 30 секунд — восстановление
-
-+скриншоты из Locust UI
+locust -f circuit_breaker.py --host=http://localhost:8080 --web-port=8082
