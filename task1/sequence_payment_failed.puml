@@ -1,0 +1,42 @@
+@startuml
+title Saga-хореография оформления заказа — ошибка оплаты
+
+actor "Покупатель" as Покупатель
+participant "Order Service" as Order
+participant "Kafka" as Broker
+participant "Inventory Service" as Inventory
+participant "Payment Service" as Payment
+participant "Payment Gateway" as PayGateway
+
+Покупатель -> Order : Оформить заказ
+activate Order
+Order -> Order : Создание заказа
+Order -> Broker : publish OrderCreated
+deactivate Order
+
+Broker -> Inventory : OrderCreated
+activate Inventory
+Inventory -> Inventory : Проверка наличия и резервирование
+Inventory -> Broker : publish InventoryReserved
+deactivate Inventory
+
+Broker -> Payment : InventoryReserved
+activate Payment
+Payment -> PayGateway : Списание средств
+PayGateway --> Payment : Ошибка оплаты
+Payment -> Broker : publish PaymentFailed
+deactivate Payment
+
+Broker -> Order : PaymentFailed
+activate Order
+Order -> Order : Отмена заказа
+Order -> Broker : publish OrderCancelled
+deactivate Order
+
+Broker -> Inventory : OrderCancelled
+activate Inventory
+Inventory -> Inventory : Снятие резерва
+Inventory -> Broker : publish InventoryUpdated
+deactivate Inventory
+
+@enduml

@@ -1,0 +1,29 @@
+# Values для установки kube-prometheus-stack через Helm
+prometheus:
+  prometheusSpec:
+    # Собираем метрики со всех ServiceMonitor'ов в кластере
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector: {}
+    serviceMonitorNamespaceSelector: {}
+    # Уменьшаем retention для экономии ресурсов в minikube
+    retention: 1d
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 500m
+
+grafana:
+  enabled: true
+
+alertmanager:
+  enabled: false
+
+# Включаем node-exporter и kube-state-metrics
+nodeExporter:
+  enabled: true
+
+kubeStateMetrics:
+  enabled: true
